@@ -1,13 +1,10 @@
 use crate::object::*;
-use crate::pyport::Py_ssize_t;
 
 #[cfg(not(GraalPy))]
 use crate::PyCodeObject;
 #[cfg(not(GraalPy))]
 use std::ffi::c_char;
-use std::ffi::{c_int, c_void};
-#[cfg(not(PyPy))]
-use std::ptr::addr_of_mut;
+use std::ffi::c_int;
 
 // skipped private _PY_MONITORING_LOCAL_EVENTS
 // skipped private _PY_MONITORING_UNGROUPED_EVENTS
@@ -67,18 +64,17 @@ pub const CO_FUTURE_GENERATOR_STOP: c_int = 0x8_0000;
 pub const CO_MAXBLOCKS: usize = 20;
 
 #[cfg(not(PyPy))]
-#[cfg_attr(windows, link(name = "pythonXY"))]
-extern "C" {
+extern_libpython! {
     pub static mut PyCode_Type: PyTypeObject;
 }
 
 #[inline]
 #[cfg(not(PyPy))]
 pub unsafe fn PyCode_Check(op: *mut PyObject) -> c_int {
-    (Py_TYPE(op) == addr_of_mut!(PyCode_Type)) as c_int
+    (Py_TYPE(op) == &raw mut PyCode_Type) as c_int
 }
 
-extern "C" {
+extern_libpython! {
     #[cfg(PyPy)]
     #[link_name = "PyPyCode_Check"]
     pub fn PyCode_Check(op: *mut PyObject) -> c_int;
@@ -86,7 +82,7 @@ extern "C" {
 
 // skipped PyCode_GetNumFree (requires knowledge of code object layout)
 
-extern "C" {
+extern_libpython! {
     #[cfg(not(GraalPy))]
     #[cfg_attr(PyPy, link_name = "PyPyCode_New")]
     pub fn PyCode_New(
@@ -107,7 +103,6 @@ extern "C" {
         lnotab: *mut PyObject,
     ) -> *mut PyCodeObject;
     #[cfg(not(GraalPy))]
-    #[cfg(Py_3_8)]
     pub fn PyCode_NewWithPosOnlyArgs(
         argcount: c_int,
         posonlyargcount: c_int,

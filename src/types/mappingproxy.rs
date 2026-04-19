@@ -8,23 +8,15 @@ use crate::types::any::PyAnyMethods;
 use crate::types::{PyAny, PyIterator, PyList};
 use crate::{ffi, Python};
 
-use std::ffi::c_int;
-
 /// Represents a Python `mappingproxy`.
 #[repr(transparent)]
 pub struct PyMappingProxy(PyAny);
-
-#[inline]
-unsafe fn dict_proxy_check(op: *mut ffi::PyObject) -> c_int {
-    unsafe { ffi::Py_IS_TYPE(op, std::ptr::addr_of_mut!(ffi::PyDictProxy_Type)) }
-}
 
 pyobject_native_type_core!(
     PyMappingProxy,
     pyobject_native_static_type_object!(ffi::PyDictProxy_Type),
     "types",
-    "MappingProxyType",
-    #checkfunction=dict_proxy_check
+    "MappingProxyType"
 );
 
 impl PyMappingProxy {
@@ -219,12 +211,12 @@ mod tests {
             let cnt;
             {
                 let none = py.None();
-                cnt = none.get_refcnt(py);
+                cnt = none._get_refcnt(py);
                 let dict = [(10, none)].into_py_dict(py).unwrap();
                 let _mappingproxy = PyMappingProxy::new(py, dict.as_mapping());
             }
             {
-                assert_eq!(cnt, py.None().get_refcnt(py));
+                assert_eq!(cnt, py.None()._get_refcnt(py));
             }
         });
     }

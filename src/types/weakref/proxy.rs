@@ -108,7 +108,6 @@ impl PyWeakrefProxy {
     )]
     /// use pyo3::prelude::*;
     /// use pyo3::types::PyWeakrefProxy;
-    /// use pyo3::ffi::c_str;
     ///
     /// #[pyclass(weakref)]
     /// struct Foo { /* fields omitted */ }
@@ -454,7 +453,7 @@ mod tests {
             }
         }
 
-        // under 'abi3-py37' and 'abi3-py38' PyClass cannot be weakreferencable.
+        // under 'abi3-py38' PyClass cannot be weakreferencable.
         #[cfg(all(feature = "macros", not(all(Py_LIMITED_API, not(Py_3_9)))))]
         mod pyo3_pyclass {
             use super::*;
@@ -771,7 +770,7 @@ mod tests {
             }
         }
 
-        // under 'abi3-py37' and 'abi3-py38' PyClass cannot be weakreferencable.
+        // under 'abi3-py38' PyClass cannot be weakreferencable.
         #[cfg(all(feature = "macros", not(all(Py_LIMITED_API, not(Py_3_9)))))]
         mod pyo3_pyclass {
             use super::*;

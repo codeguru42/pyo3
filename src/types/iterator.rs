@@ -15,7 +15,6 @@ use crate::{ffi, Bound, Py, PyAny, PyErr, PyResult};
 ///
 /// ```rust
 /// use pyo3::prelude::*;
-/// use pyo3::ffi::c_str;
 ///
 /// # fn main() -> PyResult<()> {
 /// Python::attach(|py| -> PyResult<()> {
@@ -166,7 +165,7 @@ mod tests {
     #[cfg(all(not(PyPy), Py_3_10))]
     use crate::types::PyNone;
     use crate::types::{PyAnyMethods, PyDict, PyList, PyListMethods};
-    #[cfg(all(feature = "macros", Py_3_8))]
+    #[cfg(feature = "macros")]
     use crate::PyErr;
     use crate::{IntoPyObject, PyTypeInfo, Python};
 
@@ -191,7 +190,7 @@ mod tests {
     fn iter_refcnt() {
         let (obj, count) = Python::attach(|py| {
             let obj = vec![10, 20].into_pyobject(py).unwrap();
-            let count = obj.get_refcnt();
+            let count = obj._get_refcnt();
             (obj.unbind(), count)
         });
 
@@ -206,7 +205,7 @@ mod tests {
         });
 
         Python::attach(move |py| {
-            assert_eq!(count, obj.get_refcnt(py));
+            assert_eq!(count, obj._get_refcnt(py));
         });
     }
 
@@ -219,7 +218,7 @@ mod tests {
                 let list = PyList::empty(py);
                 list.append(10).unwrap();
                 list.append(&obj).unwrap();
-                count = obj.get_refcnt();
+                count = obj._get_refcnt();
                 list
             };
 
@@ -230,7 +229,7 @@ mod tests {
                 assert!(it.next().unwrap().is(&obj));
                 assert!(it.next().is_none());
             }
-            assert_eq!(count, obj.get_refcnt());
+            assert_eq!(count, obj._get_refcnt());
         });
     }
 
@@ -416,7 +415,7 @@ def fibonacci(target):
     }
 
     #[test]
-    #[cfg(all(feature = "macros", Py_3_8))]
+    #[cfg(feature = "macros")]
     fn length_hint_error() {
         #[crate::pyfunction(crate = "crate")]
         fn test_size_hint(obj: &crate::Bound<'_, crate::PyAny>, should_error: bool) {

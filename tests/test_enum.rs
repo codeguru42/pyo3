@@ -23,6 +23,26 @@ fn test_enum_class_attr() {
 }
 
 #[test]
+fn test_enum_intopyobject() {
+    // Variant of the above that goes via `.into_pyobject()`
+    // - regression test for https://github.com/PyO3/pyo3/issues/5927
+    //
+    #[pyclass(eq, eq_int, from_py_object)]
+    #[derive(Debug, PartialEq, Eq, Clone)]
+    pub enum MyEnum {
+        A,
+    }
+
+    Python::attach(|py| {
+        let var = MyEnum::A.into_pyobject(py).unwrap();
+        // NB important to call this after `into_pyobject` - this ensures
+        // that `.into_pyobject()` has to lazily initialize the enum type object
+        let my_enum = py.get_type::<MyEnum>();
+        py_assert!(py, my_enum var, "my_enum.A == var");
+    });
+}
+
+#[test]
 fn test_enum_eq_enum() {
     Python::attach(|py| {
         let var1 = Py::new(py, MyEnum::Variant).unwrap();
@@ -402,5 +422,38 @@ fn complex_enum_with_raw_pattern_match() {
             case _:
                 assert False, "no matching variant found"
         "#);
+    });
+}
+
+#[test]
+fn complex_enum_variant_qualname() {
+    #[pyclass(skip_from_py_object)]
+    pub enum ComplexEnum {
+        A(i32),
+        B { msg: String },
+    }
+
+    Python::attach(|py| {
+        let cls = py.get_type::<ComplexEnum>();
+        py_assert!(py, cls, "cls.A.__qualname__ == 'ComplexEnum.A'");
+        py_assert!(py, cls, "cls.B.__qualname__ == 'ComplexEnum.B'");
+    });
+}
+
+#[test]
+fn complex_enum_renamed_variant_qualname() {
+    #[pyclass(name = "ComplexEnum", skip_from_py_object)]
+    pub enum PyComplexEnum {
+        #[pyo3(name = "A")]
+        PyA(i32),
+        B {
+            msg: String,
+        },
+    }
+
+    Python::attach(|py| {
+        let cls = py.get_type::<PyComplexEnum>();
+        py_assert!(py, cls, "cls.A.__qualname__ == 'ComplexEnum.A'");
+        py_assert!(py, cls, "cls.B.__qualname__ == 'ComplexEnum.B'");
     });
 }

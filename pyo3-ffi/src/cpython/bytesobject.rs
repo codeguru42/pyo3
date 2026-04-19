@@ -1,4 +1,5 @@
 use crate::object::*;
+use crate::pyport::Py_ssize_t;
 #[cfg(not(Py_LIMITED_API))]
 use std::ffi::c_char;
 use std::ffi::c_int;
@@ -20,7 +21,10 @@ pub struct PyBytesObject {
 #[cfg(any(PyPy, GraalPy, Py_LIMITED_API))]
 opaque_struct!(pub PyBytesObject);
 
-// skipped private _PyBytes_Resize
+extern_libpython! {
+    #[cfg_attr(PyPy, link_name = "_PyPyBytes_Resize")]
+    pub fn _PyBytes_Resize(bytes: *mut *mut PyObject, newsize: Py_ssize_t) -> c_int;
+}
 
 #[cfg(not(Py_LIMITED_API))]
 #[inline]
@@ -35,7 +39,7 @@ pub unsafe fn PyBytes_AS_STRING(op: *mut PyObject) -> *const c_char {
 opaque_struct!(pub PyBytesWriter);
 
 #[cfg(Py_3_15)]
-extern "C" {
+extern_libpython! {
 
     pub fn PyBytesWriter_Create(size: Py_ssize_t) -> *mut PyBytesWriter;
 

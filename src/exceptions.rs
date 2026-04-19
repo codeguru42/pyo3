@@ -294,23 +294,6 @@ macro_rules! impl_native_exception (
     )
 );
 
-#[cfg(windows)]
-macro_rules! impl_windows_native_exception (
-    ($name:ident, $exc_name:ident, $python_name:expr, $doc:expr, $layout:path) => (
-        #[cfg(windows)]
-        #[doc = $doc]
-        #[repr(transparent)]
-        #[allow(clippy::upper_case_acronyms, reason = "Python exception names")]
-        pub struct $name($crate::PyAny);
-
-        $crate::impl_exception_boilerplate!($name);
-        $crate::pyobject_native_type!($name, $layout, |_py| unsafe { $crate::ffi::$exc_name as *mut $crate::ffi::PyTypeObject }, "builtins", $python_name);
-    );
-    ($name:ident, $exc_name:ident, $python_name:expr, $doc:expr) => (
-        impl_windows_native_exception!($name, $exc_name, $python_name, $doc, $crate::ffi::PyBaseExceptionObject);
-    )
-);
-
 macro_rules! native_doc(
     ($name: literal, $alt: literal) => (
         concat!(
@@ -732,21 +715,15 @@ impl_native_exception!(
     native_doc!("TimeoutError")
 );
 
-impl_native_exception!(
-    PyEnvironmentError,
-    PyExc_EnvironmentError,
-    "EnvironmentError",
-    native_doc!("EnvironmentError")
-);
-impl_native_exception!(PyIOError, PyExc_IOError, "IOError", native_doc!("IOError"));
+/// Alias of `PyOSError`, corresponding to `EnvironmentError` alias in Python.
+pub type PyEnvironmentError = PyOSError;
+
+/// Alias of `PyOSError`, corresponding to `IOError` alias in Python.
+pub type PyIOError = PyOSError;
 
 #[cfg(windows)]
-impl_windows_native_exception!(
-    PyWindowsError,
-    PyExc_WindowsError,
-    "WindowsError",
-    native_doc!("WindowsError")
-);
+/// Alias of `PyOSError`, corresponding to `WindowsError` alias in Python.
+pub type PyWindowsError = PyOSError;
 
 impl PyUnicodeDecodeError {
     /// Creates a Python `UnicodeDecodeError`.
@@ -799,8 +776,38 @@ impl PyUnicodeDecodeError {
         input: &[u8],
         err: std::str::Utf8Error,
     ) -> PyResult<Bound<'py, PyUnicodeDecodeError>> {
-        let pos = err.valid_up_to();
-        PyUnicodeDecodeError::new(py, c"utf-8", input, pos..(pos + 1), c"invalid utf-8")
+        let start = err.valid_up_to();
+        let end = err.error_len().map_or(input.len(), |l| start + l);
+        PyUnicodeDecodeError::new(py, c"utf-8", input, start..end, c"invalid utf-8")
+    }
+
+    /// Create a new [`PyErr`](crate::PyErr) of this type from a Rust UTF-8 decoding error.
+    ///
+    /// This is equivalent to [`PyUnicodeDecodeError::new_utf8`], but returning a
+    /// [`PyErr`](crate::PyErr) instead of an exception object.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use pyo3::prelude::*;
+    /// use pyo3::exceptions::PyUnicodeDecodeError;
+    ///
+    /// Python::attach(|py| {
+    ///     let invalid_utf8 = b"fo\xd8o";
+    ///     # #[expect(invalid_from_utf8)]
+    ///     let err = std::str::from_utf8(invalid_utf8).expect_err("should be invalid utf8");
+    ///     let py_err = PyUnicodeDecodeError::new_err_from_utf8(py, invalid_utf8, err);
+    /// })
+    /// ```
+    pub fn new_err_from_utf8(
+        py: Python<'_>,
+        bytes: &[u8],
+        err: std::str::Utf8Error,
+    ) -> crate::PyErr {
+        match Self::new_utf8(py, bytes, err) {
+            Ok(e) => crate::PyErr::from_value(e.into_any()),
+            Err(e) => e,
+        }
     }
 }
 
@@ -948,7 +955,7 @@ mod tests {
     use super::*;
     use crate::types::any::PyAnyMethods;
     use crate::types::{IntoPyDict, PyDict};
-    use crate::PyErr;
+    use crate::{IntoPyObjectExt as _, PyErr};
 
     import_exception!(socket, gaierror);
     import_exception!(email.errors, MessageError);
@@ -1245,4 +1252,57 @@ mod tests {
     test_exception!(PyBytesWarning);
     #[cfg(Py_3_10)]
     test_exception!(PyEncodingWarning);
+
+    #[test]
+    #[allow(invalid_from_utf8)]
+    fn unicode_decode_error_from_utf8() {
+        Python::attach(|py| {
+            let bytes = b"abc\xffdef".to_vec();
+
+            let check_err = |py_err: PyErr| {
+                let py_err = py_err.into_bound_py_any(py).unwrap();
+
+                assert!(py_err.is_instance_of::<PyUnicodeDecodeError>());
+                assert_eq!(
+                    py_err
+                        .getattr("encoding")
+                        .unwrap()
+                        .extract::<String>()
+                        .unwrap(),
+                    "utf-8"
+                );
+                assert_eq!(
+                    py_err
+                        .getattr("object")
+                        .unwrap()
+                        .extract::<Vec<u8>>()
+                        .unwrap(),
+                    &*bytes
+                );
+                assert_eq!(
+                    py_err.getattr("start").unwrap().extract::<usize>().unwrap(),
+                    3
+                );
+                assert_eq!(
+                    py_err.getattr("end").unwrap().extract::<usize>().unwrap(),
+                    4
+                );
+                assert_eq!(
+                    py_err
+                        .getattr("reason")
+                        .unwrap()
+                        .extract::<String>()
+                        .unwrap(),
+                    "invalid utf-8"
+                );
+            };
+
+            let utf8_err_with_bytes = PyUnicodeDecodeError::new_err_from_utf8(
+                py,
+                &bytes,
+                std::str::from_utf8(&bytes).expect_err("\\xff is invalid utf-8"),
+            );
+            check_err(utf8_err_with_bytes);
+        })
+    }
 }

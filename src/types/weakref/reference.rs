@@ -32,7 +32,7 @@ pyobject_native_type!(
     "weakref",
     "ReferenceType",
     #module=Some("weakref"),
-    #checkfunction=ffi::PyWeakref_CheckRefExact
+    #checkfunction=ffi::PyWeakref_CheckRef
 );
 
 // When targeting alternative or multiple interpreters, it is better to not use the internal API.
@@ -115,7 +115,6 @@ impl PyWeakrefReference {
     )]
     /// use pyo3::prelude::*;
     /// use pyo3::types::PyWeakrefReference;
-    /// use pyo3::ffi::c_str;
     ///
     /// #[pyclass(weakref)]
     /// struct Foo { /* fields omitted */ }
@@ -394,7 +393,7 @@ mod tests {
         }
     }
 
-    // under 'abi3-py37' and 'abi3-py38' PyClass cannot be weakreferencable.
+    // under 'abi3-py38' PyClass cannot be weakreferencable.
     #[cfg(all(feature = "macros", not(all(Py_LIMITED_API, not(Py_3_9)))))]
     mod pyo3_pyclass {
         use super::*;

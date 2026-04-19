@@ -5,7 +5,7 @@ use std::ffi::c_void;
 
 use std::ffi::c_int;
 
-extern "C" {
+extern_libpython! {
     // skipped non-limited _Py_HashDouble
     // skipped non-limited _Py_HashPointer
     // skipped non-limited _Py_HashPointerRaw
@@ -23,5 +23,7 @@ extern "C" {
 pub const Py_HASH_EXTERNAL: c_int = 0;
 pub const Py_HASH_SIPHASH24: c_int = 1;
 pub const Py_HASH_FNV: c_int = 2;
+#[cfg(Py_3_11)]
+pub const Py_HASH_SIPHASH13: c_int = 3;
 
 // skipped Py_HASH_ALGORITHM

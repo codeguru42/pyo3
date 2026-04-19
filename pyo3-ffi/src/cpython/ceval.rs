@@ -1,8 +1,8 @@
 use crate::cpython::pystate::Py_tracefunc;
 use crate::object::PyObject;
 
-extern "C" {
-    // skipped private _PyEval_CallTracing
+extern_libpython! {
+    // skipped non-limited _PyEval_CallTracing
 
     // skipped private _PyEval_EvalFrameDefault
 

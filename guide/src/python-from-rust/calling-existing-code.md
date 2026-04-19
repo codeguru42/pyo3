@@ -52,7 +52,7 @@ Python::attach(|py| {
 This method returns nothing (like any Python statement), but you can get access to manipulated objects via the `locals` dict.
 
 You can also use the [`py_run!`] macro, which is a shorthand for [`Python::run`].
-Since [`py_run!`] panics on exceptions, we recommend you use this macro only for quickly testing your Python extensions.
+Since [`py_run!`] panics on exceptions, we recommend you use this macro only for quickly testing your Python extension modules.
 
 ```rust
 use pyo3::prelude::*;
@@ -95,7 +95,8 @@ assert userdata.as_tuple() == userdata_as_tuple
 
 [`PyModule::from_code`]({{#PYO3_DOCS_URL}}/pyo3/types/struct.PyModule.html#method.from_code) can be used to generate a Python module which can then be used just as if it was imported with `PyModule::import`.
 
-**Warning**: This will compile and execute code. **Never** pass untrusted code to this function!
+**Warning**: This will compile and execute code.
+**Never** pass untrusted code to this function!
 
 ```rust
 use pyo3::{prelude::*, types::IntoPyDict};

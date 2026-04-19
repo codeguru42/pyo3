@@ -16,7 +16,7 @@ pub use self::dict::{PyDictItems, PyDictKeys, PyDictValues};
 pub use self::ellipsis::PyEllipsis;
 pub use self::float::{PyFloat, PyFloatMethods};
 #[cfg(all(not(Py_LIMITED_API), not(PyPy), not(GraalPy)))]
-pub use self::frame::PyFrame;
+pub use self::frame::{PyFrame, PyFrameMethods};
 pub use self::frozenset::{PyFrozenSet, PyFrozenSetBuilder, PyFrozenSetMethods};
 pub use self::function::PyCFunction;
 #[cfg(not(Py_LIMITED_API))]
@@ -60,7 +60,6 @@ pub use self::weakref::{PyWeakref, PyWeakrefMethods, PyWeakrefProxy, PyWeakrefRe
 /// ```rust
 /// use pyo3::prelude::*;
 /// use pyo3::types::PyDict;
-/// use pyo3::ffi::c_str;
 ///
 /// # pub fn main() -> PyResult<()> {
 /// Python::attach(|py| {
@@ -132,7 +131,7 @@ macro_rules! pyobject_native_type_named (
 #[macro_export]
 macro_rules! pyobject_native_static_type_object(
     ($typeobject:expr) => {
-        |_py| ::std::ptr::addr_of_mut!($typeobject)
+        |_py| &raw mut $typeobject
     };
 );
 

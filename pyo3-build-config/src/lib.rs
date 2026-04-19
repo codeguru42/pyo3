@@ -33,8 +33,9 @@ use target_lexicon::OperatingSystem;
 ///
 /// | Flag | Description |
 /// | ---- | ----------- |
-/// | `#[cfg(Py_3_7)]`, `#[cfg(Py_3_8)]`, `#[cfg(Py_3_9)]`, `#[cfg(Py_3_10)]` | These attributes mark code only for a given Python version and up. For example, `#[cfg(Py_3_7)]` marks code which can run on Python 3.7 **and newer**. |
+/// | `#[cfg(Py_3_8)]`, `#[cfg(Py_3_9)]`, `#[cfg(Py_3_10)]`, `#[cfg(Py_3_11)]`, ... | These attributes mark code only for a given Python version and up. For example, `#[cfg(Py_3_8)]` marks code which can run on Python 3.8 **and newer**. There is one attribute for each Python version currently supported by PyO3. |
 /// | `#[cfg(Py_LIMITED_API)]` | This marks code which is run when compiling with PyO3's `abi3` feature enabled. |
+/// | `#[cfg(Py_GIL_DISABLED)]` | This marks code which is run on the free-threaded interpreter. |
 /// | `#[cfg(PyPy)]` | This marks code which is run when compiling for PyPy. |
 /// | `#[cfg(GraalPy)]` | This marks code which is run when compiling for GraalPy. |
 ///
@@ -55,19 +56,29 @@ pub fn use_pyo3_cfgs() {
 ///
 /// The following link flags are added:
 /// - macOS: `-undefined dynamic_lookup`
-/// - wasm32-unknown-emscripten: `-sSIDE_MODULE=2 -sWASM_BIGINT`
+/// - wasm32-unknown-emscripten: for Rust <= 1.95, `-sSIDE_MODULE=2 -sWASM_BIGINT`
 ///
 /// All other platforms currently are no-ops, however this may change as necessary
 /// in future.
 pub fn add_extension_module_link_args() {
-    _add_extension_module_link_args(&impl_::target_triple_from_env(), std::io::stdout())
+    _add_extension_module_link_args(
+        &impl_::target_triple_from_env(),
+        std::io::stdout(),
+        rustc_minor_version(),
+    )
 }
 
-fn _add_extension_module_link_args(triple: &Triple, mut writer: impl std::io::Write) {
+fn _add_extension_module_link_args(
+    triple: &Triple,
+    mut writer: impl std::io::Write,
+    rustc_minor_version: Option<u32>,
+) {
     if matches!(triple.operating_system, OperatingSystem::Darwin(_)) {
         writeln!(writer, "cargo:rustc-cdylib-link-arg=-undefined").unwrap();
         writeln!(writer, "cargo:rustc-cdylib-link-arg=dynamic_lookup").unwrap();
-    } else if triple == &Triple::from_str("wasm32-unknown-emscripten").unwrap() {
+    } else if triple == &Triple::from_str("wasm32-unknown-emscripten").unwrap()
+        && rustc_minor_version.is_some_and(|version| version < 95)
+    {
         writeln!(writer, "cargo:rustc-cdylib-link-arg=-sSIDE_MODULE=2").unwrap();
         writeln!(writer, "cargo:rustc-cdylib-link-arg=-sWASM_BIGINT").unwrap();
     }
@@ -246,11 +257,6 @@ pub fn print_feature_cfgs() {
 /// - <https://doc.rust-lang.org/nightly/cargo/reference/build-scripts.html#rustc-check-cfg>
 #[doc(hidden)]
 pub fn print_expected_cfgs() {
-    if rustc_minor_version().is_some_and(|version| version < 80) {
-        // rustc 1.80.0 stabilized `rustc-check-cfg` feature, don't emit before
-        return;
-    }
-
     println!("cargo:rustc-check-cfg=cfg(Py_LIMITED_API)");
     println!("cargo:rustc-check-cfg=cfg(Py_GIL_DISABLED)");
     println!("cargo:rustc-check-cfg=cfg(PyPy)");
@@ -264,6 +270,29 @@ pub fn print_expected_cfgs() {
     for i in impl_::MINIMUM_SUPPORTED_VERSION.minor..=impl_::ABI3_MAX_MINOR + 1 {
         println!("cargo:rustc-check-cfg=cfg(Py_3_{i})");
     }
+
+    // pyo3_dll cfg for raw-dylib linking on Windows
+    let mut dll_names = vec!["python3".to_string(), "python3_d".to_string()];
+    for i in impl_::MINIMUM_SUPPORTED_VERSION.minor..=impl_::ABI3_MAX_MINOR + 1 {
+        dll_names.push(format!("python3{i}"));
+        dll_names.push(format!("python3{i}_d"));
+        if i >= 13 {
+            dll_names.push(format!("python3{i}t"));
+            dll_names.push(format!("python3{i}t_d"));
+        }
+    }
+    // PyPy DLL names (libpypy3.X-c.dll)
+    for i in
+        impl_::MINIMUM_SUPPORTED_VERSION_PYPY.minor..=impl_::MAXIMUM_SUPPORTED_VERSION_PYPY.minor
+    {
+        dll_names.push(format!("libpypy3.{i}-c"));
+    }
+    let values = dll_names
+        .iter()
+        .map(|n| format!("\"{n}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+    println!("cargo:rustc-check-cfg=cfg(pyo3_dll, values({values}))");
 }
 
 /// Private exports used in PyO3's build.rs
@@ -313,7 +342,6 @@ pub mod pyo3_build_script_impl {
         )]
         if let Some(mut interpreter_config) = config_from_pyo3_config_file_env() {
             interpreter_config.apply_default_lib_name_to_config_file(target);
-            interpreter_config.generate_import_libs()?;
             Ok(BuildConfig {
                 interpreter_config,
                 source: BuildConfigSource::ConfigFile,
@@ -414,12 +442,14 @@ mod tests {
         _add_extension_module_link_args(
             &Triple::from_str("x86_64-pc-windows-msvc").unwrap(),
             &mut buf,
+            None,
         );
         assert_eq!(buf, Vec::new());
 
         _add_extension_module_link_args(
             &Triple::from_str("x86_64-apple-darwin").unwrap(),
             &mut buf,
+            None,
         );
         assert_eq!(
             std::str::from_utf8(&buf).unwrap(),
@@ -431,12 +461,20 @@ mod tests {
         _add_extension_module_link_args(
             &Triple::from_str("wasm32-unknown-emscripten").unwrap(),
             &mut buf,
+            Some(94),
         );
         assert_eq!(
             std::str::from_utf8(&buf).unwrap(),
             "cargo:rustc-cdylib-link-arg=-sSIDE_MODULE=2\n\
              cargo:rustc-cdylib-link-arg=-sWASM_BIGINT\n"
         );
+        buf.clear();
+        _add_extension_module_link_args(
+            &Triple::from_str("wasm32-unknown-emscripten").unwrap(),
+            &mut buf,
+            Some(95),
+        );
+        assert_eq!(std::str::from_utf8(&buf).unwrap(), "");
     }
 
     #[cfg(feature = "resolve-config")]

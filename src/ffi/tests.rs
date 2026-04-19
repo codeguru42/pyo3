@@ -1,6 +1,8 @@
 use crate::ffi::*;
-use crate::types::any::PyAnyMethods;
 use crate::Python;
+
+#[cfg(not(Py_LIMITED_API))]
+use crate::types::any::PyAnyMethods;
 
 #[cfg(all(not(Py_LIMITED_API), any(not(any(PyPy, GraalPy)), feature = "macros")))]
 use crate::types::PyString;
@@ -198,8 +200,6 @@ fn ascii() {
             // 2 and 4 byte macros return nonsense for this string instance.
             assert_eq!(PyUnicode_KIND(ptr), PyUnicode_1BYTE_KIND);
 
-            #[cfg(not(Py_3_14))]
-            assert!(!_PyUnicode_COMPACT_DATA(ptr).is_null());
             // _PyUnicode_NONCOMPACT_DATA isn't valid for compact strings.
             assert!(!PyUnicode_DATA(ptr).is_null());
 
@@ -241,8 +241,6 @@ fn ucs4() {
             assert!(!PyUnicode_4BYTE_DATA(ptr).is_null());
             assert_eq!(PyUnicode_KIND(ptr), PyUnicode_4BYTE_KIND);
 
-            #[cfg(not(Py_3_14))]
-            assert!(!_PyUnicode_COMPACT_DATA(ptr).is_null());
             // _PyUnicode_NONCOMPACT_DATA isn't valid for compact strings.
             assert!(!PyUnicode_DATA(ptr).is_null());
 
@@ -304,16 +302,16 @@ fn test_inc_dec_ref() {
     Python::attach(|py| {
         let obj = py.eval(c"object()", None, None).unwrap();
 
-        let ref_count = obj.get_refcnt();
+        let ref_count = obj._get_refcnt();
         let ptr = obj.as_ptr();
 
         unsafe { Py_INCREF(ptr) };
 
-        assert_eq!(obj.get_refcnt(), ref_count + 1);
+        assert_eq!(obj._get_refcnt(), ref_count + 1);
 
         unsafe { Py_DECREF(ptr) };
 
-        assert_eq!(obj.get_refcnt(), ref_count);
+        assert_eq!(obj._get_refcnt(), ref_count);
     })
 }
 
@@ -323,15 +321,15 @@ fn test_inc_dec_ref_immortal() {
     Python::attach(|py| {
         let obj = py.None();
 
-        let ref_count = obj.get_refcnt(py);
+        let ref_count = obj._get_refcnt(py);
         let ptr = obj.as_ptr();
 
         unsafe { Py_INCREF(ptr) };
 
-        assert_eq!(obj.get_refcnt(py), ref_count);
+        assert_eq!(obj._get_refcnt(py), ref_count);
 
         unsafe { Py_DECREF(ptr) };
 
-        assert_eq!(obj.get_refcnt(py), ref_count);
+        assert_eq!(obj._get_refcnt(py), ref_count);
     })
 }

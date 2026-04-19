@@ -27,7 +27,7 @@ impl Default for PyObjectArenaAllocator {
     }
 }
 
-extern "C" {
+extern_libpython! {
     #[cfg(not(any(PyPy, GraalPy)))]
     pub fn PyObject_GetArenaAllocator(allocator: *mut PyObjectArenaAllocator);
     #[cfg(not(any(PyPy, GraalPy)))]

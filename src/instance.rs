@@ -466,10 +466,8 @@ impl<'py> Bound<'py, PyAny> {
     ///   be either a borrowed reference or an owned reference, it does not matter, as this is
     ///   just `&Bound` there will never be any ownership transfer.
     #[inline]
-    pub(crate) unsafe fn ref_from_ptr<'a>(
-        _py: Python<'py>,
-        ptr: &'a *mut ffi::PyObject,
-    ) -> &'a Self {
+    #[doc(hidden)]
+    pub unsafe fn ref_from_ptr<'a>(_py: Python<'py>, ptr: &'a *mut ffi::PyObject) -> &'a Self {
         let ptr = NonNull::from(ptr).cast();
         // SAFETY: caller has upheld the safety contract,
         // and `Bound<PyAny>` is layout-compatible with `*mut ffi::PyObject`.
@@ -501,7 +499,8 @@ impl<'py> Bound<'py, PyAny> {
     /// - `ptr` must be a valid pointer to a Python object for the lifetime `'a`. The `ptr` can be
     ///   either a borrowed reference or an owned reference, it does not matter, as this is just
     ///   `&Bound` there will never be any ownership transfer.
-    pub(crate) unsafe fn ref_from_non_null<'a>(
+    #[doc(hidden)]
+    pub unsafe fn ref_from_non_null<'a>(
         _py: Python<'py>,
         ptr: &'a NonNull<ffi::PyObject>,
     ) -> &'a Self {
@@ -646,7 +645,7 @@ where
     where
         T: PyClass<Frozen = True> + Sync,
     {
-        self.1.get()
+        self.as_borrowed().get()
     }
 
     /// Upcast this `Bound<PyClass>` to its base type by reference.
@@ -1074,6 +1073,40 @@ impl<'a, 'py, T> Borrowed<'a, 'py, T> {
     #[inline]
     pub unsafe fn cast_unchecked<U>(self) -> Borrowed<'a, 'py, U> {
         Borrowed(self.0, PhantomData, self.2)
+    }
+
+    /// Provide an immutable borrow of the value `T`.
+    ///
+    /// This is available if the class is [`frozen`][macro@crate::pyclass] and [`Sync`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::sync::atomic::{AtomicUsize, Ordering};
+    /// # use pyo3::prelude::*;
+    ///
+    /// #[pyclass(frozen)]
+    /// struct FrozenCounter {
+    ///     value: AtomicUsize,
+    /// }
+    ///
+    /// Python::attach(|py| {
+    ///     let counter = FrozenCounter { value: AtomicUsize::new(0) };
+    ///
+    ///     let py_counter = Bound::new(py, counter).unwrap();
+    ///
+    ///     let py_counter_borrowed = py_counter.as_borrowed();
+    ///
+    ///     py_counter_borrowed.get().value.fetch_add(1, Ordering::Relaxed);
+    /// });
+    /// ```
+    #[inline]
+    pub fn get(self) -> &'a T
+    where
+        T: PyClass<Frozen = True> + Sync,
+    {
+        // Safety: The class itself is frozen and `Sync`
+        unsafe { &*self.get_class_object().get_ptr() }
     }
 }
 
@@ -1728,7 +1761,16 @@ impl<T> Py<T> {
 
     /// Gets the reference count of the `ffi::PyObject` pointer.
     #[inline]
-    pub fn get_refcnt(&self, _py: Python<'_>) -> isize {
+    #[deprecated(
+        since = "0.29.0",
+        note = "use `pyo3::ffi::Py_REFCNT(obj.as_ptr())` instead"
+    )]
+    pub fn get_refcnt(&self, py: Python<'_>) -> isize {
+        self._get_refcnt(py)
+    }
+
+    #[inline]
+    pub(crate) fn _get_refcnt(&self, _py: Python<'_>) -> isize {
         // SAFETY: Self is a valid pointer to a PyObject
         unsafe { ffi::Py_REFCNT(self.0.as_ptr()) }
     }
@@ -2145,6 +2187,18 @@ impl<T> std::convert::From<Bound<'_, T>> for Py<T> {
     }
 }
 
+impl<'py, T> From<&Bound<'py, T>> for Bound<'py, T> {
+    fn from(value: &Bound<'py, T>) -> Self {
+        value.clone()
+    }
+}
+
+impl<T> From<&Bound<'_, T>> for Py<T> {
+    fn from(value: &Bound<'_, T>) -> Self {
+        value.clone().unbind()
+    }
+}
+
 impl<T> std::convert::From<Borrowed<'_, '_, T>> for Py<T> {
     fn from(value: Borrowed<'_, '_, T>) -> Self {
         value.unbind()
@@ -2446,10 +2500,10 @@ fn panic_on_null(py: Python<'_>) -> ! {
 #[cfg(test)]
 mod tests {
     use super::{Bound, IntoPyObject, Py};
-    #[cfg(all(feature = "macros", Py_3_8, panic = "unwind"))]
+    #[cfg(all(feature = "macros", panic = "unwind"))]
     use crate::exceptions::PyValueError;
     use crate::test_utils::generate_unique_module_name;
-    #[cfg(all(feature = "macros", Py_3_8, panic = "unwind"))]
+    #[cfg(all(feature = "macros", panic = "unwind"))]
     use crate::test_utils::UnraisableCapture;
     use crate::types::{dict::IntoPyDict, PyAnyMethods, PyCapsule, PyDict, PyString};
     use crate::{ffi, Borrowed, IntoPyObjectExt, PyAny, PyResult, Python};
@@ -2542,7 +2596,7 @@ mod tests {
         });
 
         Python::attach(move |py| {
-            assert_eq!(dict.get_refcnt(py), 1);
+            assert_eq!(dict._get_refcnt(py), 1);
         });
     }
 
@@ -2550,9 +2604,9 @@ mod tests {
     fn pyobject_from_py() {
         Python::attach(|py| {
             let dict: Py<PyDict> = PyDict::new(py).unbind();
-            let cnt = dict.get_refcnt(py);
+            let cnt = dict._get_refcnt(py);
             let p: Py<PyAny> = dict.into();
-            assert_eq!(p.get_refcnt(py), cnt);
+            assert_eq!(p._get_refcnt(py), cnt);
         });
     }
 
@@ -2710,10 +2764,10 @@ a = A()
                 method: impl FnOnce(*mut ffi::PyObject) -> Bound<'py, PyAny>,
             ) {
                 let mut dropped = false;
-                let capsule = PyCapsule::new_with_destructor(
+                let capsule = PyCapsule::new_with_value_and_destructor(
                     py,
                     (&mut dropped) as *mut _ as usize,
-                    None,
+                    c"bound_from_borrowed_ptr_constructors",
                     |ptr, _| unsafe { std::ptr::write(ptr as *mut bool, true) },
                 )
                 .unwrap();
@@ -2752,10 +2806,10 @@ a = A()
                 method: impl FnOnce(&*mut ffi::PyObject) -> Borrowed<'_, 'py, PyAny>,
             ) {
                 let mut dropped = false;
-                let capsule = PyCapsule::new_with_destructor(
+                let capsule = PyCapsule::new_with_value_and_destructor(
                     py,
                     (&mut dropped) as *mut _ as usize,
-                    None,
+                    c"borrowed_ptr_constructors",
                     |ptr, _| unsafe { std::ptr::write(ptr as *mut bool, true) },
                 )
                 .unwrap();
@@ -2786,11 +2840,11 @@ a = A()
             let object2 = object.clone_ref(py);
 
             assert_eq!(object.as_ptr(), object2.as_ptr());
-            assert_eq!(object.get_refcnt(py), 2);
+            assert_eq!(object._get_refcnt(py), 2);
 
             object.drop_ref(py);
 
-            assert_eq!(object2.get_refcnt(py), 1);
+            assert_eq!(object2._get_refcnt(py), 1);
 
             object2.drop_ref(py);
         });
@@ -2807,7 +2861,7 @@ a = A()
         });
     }
 
-    #[cfg(all(feature = "macros", Py_3_8, panic = "unwind"))]
+    #[cfg(all(feature = "macros", panic = "unwind"))]
     #[test]
     fn test_constructors_panic_on_null() {
         Python::attach(|py| {
@@ -2918,6 +2972,8 @@ a = A()
                     assert_eq!(instance.get().0, i);
 
                     assert_eq!(instance.bind(py).get().0, i);
+
+                    assert_eq!(instance.bind_borrowed(py).get().0, i);
                 }
             })
         }

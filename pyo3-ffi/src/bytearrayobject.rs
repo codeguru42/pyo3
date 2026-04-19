@@ -1,28 +1,8 @@
 use crate::object::*;
 use crate::pyport::Py_ssize_t;
 use std::ffi::{c_char, c_int};
-use std::ptr::addr_of_mut;
 
-#[cfg(not(any(PyPy, GraalPy, Py_LIMITED_API)))]
-#[repr(C)]
-pub struct PyByteArrayObject {
-    pub ob_base: PyVarObject,
-    pub ob_alloc: Py_ssize_t,
-    pub ob_bytes: *mut c_char,
-    pub ob_start: *mut c_char,
-    #[cfg(Py_3_9)]
-    pub ob_exports: Py_ssize_t,
-    #[cfg(not(Py_3_9))]
-    pub ob_exports: c_int,
-    #[cfg(Py_3_15)]
-    pub ob_bytes_object: *mut PyObject,
-}
-
-#[cfg(any(PyPy, GraalPy, Py_LIMITED_API))]
-opaque_struct!(pub PyByteArrayObject);
-
-#[cfg_attr(windows, link(name = "pythonXY"))]
-extern "C" {
+extern_libpython! {
     #[cfg_attr(PyPy, link_name = "PyPyByteArray_Type")]
     pub static mut PyByteArray_Type: PyTypeObject;
 
@@ -31,15 +11,15 @@ extern "C" {
 
 #[inline]
 pub unsafe fn PyByteArray_Check(op: *mut PyObject) -> c_int {
-    PyObject_TypeCheck(op, addr_of_mut!(PyByteArray_Type))
+    PyObject_TypeCheck(op, &raw mut PyByteArray_Type)
 }
 
 #[inline]
 pub unsafe fn PyByteArray_CheckExact(op: *mut PyObject) -> c_int {
-    (Py_TYPE(op) == addr_of_mut!(PyByteArray_Type)) as c_int
+    (Py_TYPE(op) == &raw mut PyByteArray_Type) as c_int
 }
 
-extern "C" {
+extern_libpython! {
     #[cfg_attr(PyPy, link_name = "PyPyByteArray_FromObject")]
     pub fn PyByteArray_FromObject(o: *mut PyObject) -> *mut PyObject;
     #[cfg_attr(PyPy, link_name = "PyPyByteArray_Concat")]

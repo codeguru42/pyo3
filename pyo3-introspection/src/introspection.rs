@@ -50,6 +50,7 @@ fn parse_chunks(chunks: &[Chunk], main_module_name: &str) -> Result<Module> {
             id,
             name,
             members,
+            doc,
             incomplete,
         } = chunk
         {
@@ -64,6 +65,7 @@ fn parse_chunks(chunks: &[Chunk], main_module_name: &str) -> Result<Module> {
                     name,
                     members,
                     *incomplete,
+                    doc.as_deref(),
                     &chunks_by_id,
                     &chunks_by_parent,
                     &type_hint_for_annotation_id,
@@ -74,11 +76,13 @@ fn parse_chunks(chunks: &[Chunk], main_module_name: &str) -> Result<Module> {
     bail!("No module named {main_module_name} found")
 }
 
+#[expect(clippy::too_many_arguments)]
 fn convert_module(
     id: &str,
     name: &str,
     members: &[String],
     mut incomplete: bool,
+    docstring: Option<&str>,
     chunks_by_id: &HashMap<&str, &Chunk>,
     chunks_by_parent: &HashMap<&str, Vec<&Chunk>>,
     type_hint_for_annotation_id: &HashMap<String, Expr>,
@@ -110,6 +114,7 @@ fn convert_module(
         functions,
         attributes,
         incomplete,
+        docstring: docstring.map(Into::into),
     })
 }
 
@@ -133,12 +138,14 @@ fn convert_members<'a>(
                 id,
                 members,
                 incomplete,
+                doc,
             } => {
                 modules.push(convert_module(
                     id,
                     name,
                     members,
                     *incomplete,
+                    doc.as_deref(),
                     chunks_by_id,
                     chunks_by_parent,
                     type_hint_for_annotation_id,
@@ -149,12 +156,14 @@ fn convert_members<'a>(
                 id,
                 bases,
                 decorators,
+                doc,
                 parent: _,
             } => classes.push(convert_class(
                 id,
                 name,
                 bases,
                 decorators,
+                doc.as_deref(),
                 chunks_by_id,
                 chunks_by_parent,
                 type_hint_for_annotation_id,
@@ -167,12 +176,14 @@ fn convert_members<'a>(
                 decorators,
                 is_async,
                 returns,
+                doc,
             } => functions.push(convert_function(
                 name,
                 arguments,
                 decorators,
                 returns,
                 *is_async,
+                doc.as_deref(),
                 type_hint_for_annotation_id,
             )),
             Chunk::Attribute {
@@ -181,10 +192,12 @@ fn convert_members<'a>(
                 parent: _,
                 value,
                 annotation,
+                doc,
             } => attributes.push(convert_attribute(
                 name,
                 value,
                 annotation,
+                doc.as_deref(),
                 type_hint_for_annotation_id,
             )),
         }
@@ -217,11 +230,13 @@ fn convert_members<'a>(
     Ok((modules, classes, functions, attributes))
 }
 
+#[expect(clippy::too_many_arguments)]
 fn convert_class(
     id: &str,
     name: &str,
     bases: &[ChunkExpr],
     decorators: &[ChunkExpr],
+    docstring: Option<&str>,
     chunks_by_id: &HashMap<&str, &Chunk>,
     chunks_by_parent: &HashMap<&str, Vec<&Chunk>>,
     type_hint_for_annotation_id: &HashMap<String, Expr>,
@@ -249,6 +264,7 @@ fn convert_class(
             .map(|e| convert_expr(e, type_hint_for_annotation_id))
             .collect(),
         inner_classes: nested_classes,
+        docstring: docstring.map(Into::into),
     })
 }
 
@@ -258,6 +274,7 @@ fn convert_function(
     decorators: &[ChunkExpr],
     returns: &Option<ChunkExpr>,
     is_async: bool,
+    docstring: Option<&str>,
     type_hint_for_annotation_id: &HashMap<String, Expr>,
 ) -> Function {
     Function {
@@ -295,6 +312,7 @@ fn convert_function(
             .as_ref()
             .map(|a| convert_expr(a, type_hint_for_annotation_id)),
         is_async,
+        docstring: docstring.map(Into::into),
     }
 }
 
@@ -332,6 +350,7 @@ fn convert_attribute(
     name: &str,
     value: &Option<ChunkExpr>,
     annotation: &Option<ChunkExpr>,
+    docstring: Option<&str>,
     type_hint_for_annotation_id: &HashMap<String, Expr>,
 ) -> Attribute {
     Attribute {
@@ -342,6 +361,7 @@ fn convert_attribute(
         annotation: annotation
             .as_ref()
             .map(|a| convert_expr(a, type_hint_for_annotation_id)),
+        docstring: docstring.map(ToString::to_string),
     }
 }
 
@@ -532,8 +552,11 @@ fn find_introspection_chunks_in_binary_object(path: &Path) -> Result<Vec<Chunk>>
             bail!("No Mach-o chunk found in the multi-arch Mach-o container")
         }
         Object::PE(pe) => find_introspection_chunks_in_pe(&pe, &library_content),
-        _ => {
-            bail!("Only ELF, Mach-o and PE containers can be introspected")
+        other => {
+            bail!(
+                "Only ELF, Mach-o and PE containers can be introspected, got {other:?} from file {path:?}",
+                path = path.display()
+            )
         }
     }
 }
@@ -541,11 +564,13 @@ fn find_introspection_chunks_in_binary_object(path: &Path) -> Result<Vec<Chunk>>
 fn find_introspection_chunks_in_elf(elf: &Elf<'_>, library_content: &[u8]) -> Result<Vec<Chunk>> {
     let mut chunks = Vec::new();
     for sym in &elf.syms {
-        if is_introspection_symbol(elf.strtab.get_at(sym.st_name).unwrap_or_default()) {
+        let sym_name = elf.strtab.get_at(sym.st_name).unwrap_or_default();
+        if is_introspection_symbol(sym_name) {
             ensure!(u32::try_from(sym.st_shndx)? != SHN_XINDEX, "Section names length is greater than SHN_LORESERVE in ELF, this is not supported by PyO3 yet");
             let section_header = &elf.section_headers[sym.st_shndx];
             let data_offset = sym.st_value + section_header.sh_offset - section_header.sh_addr;
             chunks.push(deserialize_chunk(
+                sym_name,
                 &library_content[usize::try_from(data_offset).context("File offset overflow")?..],
                 elf.little_endian,
             )?);
@@ -585,6 +610,7 @@ fn find_introspection_chunks_in_macho(
             let section = &sections[nlist.n_sect - 1]; // Sections are counted from 1
             let data_offset = nlist.n_value + u64::from(section.offset) - section.addr;
             chunks.push(deserialize_chunk(
+                name,
                 &library_content[usize::try_from(data_offset).context("File offset overflow")?..],
                 macho.little_endian,
             )?);
@@ -598,6 +624,7 @@ fn find_introspection_chunks_in_pe(pe: &PE<'_>, library_content: &[u8]) -> Resul
     for export in &pe.exports {
         if is_introspection_symbol(export.name.unwrap_or_default()) {
             chunks.push(deserialize_chunk(
+                export.name.unwrap_or_default(),
                 &library_content[export.offset.context("No symbol offset")?..],
                 true,
             )?);
@@ -607,9 +634,13 @@ fn find_introspection_chunks_in_pe(pe: &PE<'_>, library_content: &[u8]) -> Resul
 }
 
 fn deserialize_chunk(
+    symbol_name: &str,
     content_with_chunk_at_the_beginning: &[u8],
     is_little_endian: bool,
 ) -> Result<Chunk> {
+    let symbol_version = introspection_symbol_version(symbol_name).unwrap_or_default();
+    ensure!(symbol_version == "1", "The introspection format version '{symbol_version}' is not supported by this version of pyo3-introspection. Please upgrade your build tool like maturin or downgrade pyo3");
+
     let length = content_with_chunk_at_the_beginning
         .split_at(4)
         .0
@@ -634,9 +665,15 @@ fn deserialize_chunk(
 }
 
 fn is_introspection_symbol(name: &str) -> bool {
-    name.strip_prefix('_')
+    introspection_symbol_version(name).is_some()
+}
+
+fn introspection_symbol_version(name: &str) -> Option<&str> {
+    let name = name
+        .strip_prefix('_')
         .unwrap_or(name)
-        .starts_with("PYO3_INTROSPECTION_1_")
+        .strip_prefix("PYO3_INTROSPECTION_")?;
+    Some(name.split_once('_').unwrap_or((name, "")).0)
 }
 
 #[derive(Deserialize)]
@@ -646,6 +683,8 @@ enum Chunk {
         id: String,
         name: String,
         members: Vec<String>,
+        #[serde(default)]
+        doc: Option<String>,
         incomplete: bool,
     },
     Class {
@@ -657,6 +696,8 @@ enum Chunk {
         decorators: Vec<ChunkExpr>,
         #[serde(default)]
         parent: Option<String>,
+        #[serde(default)]
+        doc: Option<String>,
     },
     Function {
         #[serde(default)]
@@ -671,6 +712,8 @@ enum Chunk {
         returns: Option<ChunkExpr>,
         #[serde(default, rename = "async")]
         is_async: bool,
+        #[serde(default)]
+        doc: Option<String>,
     },
     Attribute {
         #[serde(default)]
@@ -682,6 +725,8 @@ enum Chunk {
         value: Option<ChunkExpr>,
         #[serde(default)]
         annotation: Option<ChunkExpr>,
+        #[serde(default)]
+        doc: Option<String>,
     },
 }
 

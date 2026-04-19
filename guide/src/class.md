@@ -332,7 +332,8 @@ Python::attach(|py| {
 ```
 
 A `Bound<'py, T>` is restricted to the Python lifetime `'py`.
-To make the object longer lived (for example, to store it in a struct on the Rust side), use `Py<T>`. `Py<T>` needs a `Python<'_>` token to allow access:
+To make the object longer lived (for example, to store it in a struct on the Rust side), use `Py<T>`.
+`Py<T>` needs a `Python<'_>` token to allow access:
 
 ```rust
 # use pyo3::prelude::*;
@@ -885,7 +886,28 @@ impl MyClass {
 
 ## Class attributes
 
-To create a class attribute (also called [class variable][classattr]), a method without any arguments can be annotated with the `#[classattr]` attribute.
+To create a class attribute (also called [class variable][classattr]), an associated constant can be annotated with the `#[classattr]` attribute.
+
+```rust,no_run
+# use pyo3::prelude::*;
+# #[pyclass]
+# struct MyClass {}
+#[pymethods]
+impl MyClass {
+    #[classattr]
+    const MY_ATTRIBUTE: &'static str = "foobar";
+}
+#
+# Python::attach(|py| {
+#    let my_class = py.get_type::<MyClass>();
+#    pyo3::py_run!(py, my_class, "assert my_class.MY_ATTRIBUTE == 'foobar'")
+# });
+```
+
+If `const` code is too limiting, a method without any arguments can be annotated with the `#[classattr]` attribute.
+
+> [!NOTE]
+> Here too, the class attribute value is computed once during the class creation and not each time the attribute is accessed.
 
 ```rust,no_run
 # use pyo3::prelude::*;
@@ -898,11 +920,11 @@ impl MyClass {
         "hello".to_string()
     }
 }
-
-Python::attach(|py| {
-    let my_class = py.get_type::<MyClass>();
-    pyo3::py_run!(py, my_class, "assert my_class.my_attribute == 'hello'")
-});
+#
+# Python::attach(|py| {
+#    let my_class = py.get_type::<MyClass>();
+#    pyo3::py_run!(py, my_class, "assert my_class.my_attribute == 'hello'")
+# });
 ```
 
 > [!NOTE]
@@ -911,19 +933,6 @@ class creation.
 
 > [!NOTE]
 > `#[classattr]` does not work with [`#[pyo3(warn(...))]`](./function.md#warn) attribute.
-
-If the class attribute is defined with `const` code only, one can also annotate associated constants:
-
-```rust,no_run
-# use pyo3::prelude::*;
-# #[pyclass]
-# struct MyClass {}
-#[pymethods]
-impl MyClass {
-    #[classattr]
-    const MY_CONST_ATTRIBUTE: &'static str = "foobar";
-}
-```
 
 ## Classes as function arguments
 
@@ -968,8 +977,8 @@ fn increment_then_print_field(my_class: &Bound<'_, MyClass>) {
 // When the Python object smart pointer needs to be stored elsewhere prefer `Py<T>` over `Bound<'py, T>`
 // to avoid the lifetime restrictions.
 #[pyfunction]
-fn print_refcnt(my_class: Py<MyClass>, py: Python<'_>) {
-    println!("{}", my_class.get_refcnt(py));
+fn print_is_none(my_class: Py<MyClass>, py: Python<'_>) {
+    println!("{}", my_class.is_none(py));
 }
 ```
 
@@ -1307,7 +1316,9 @@ Python::attach(|py| {
 })
 ```
 
-Ordering of enum variants is optionally added using `#[pyo3(ord)]`. *Note: Implementation of the `PartialOrd` trait is required when passing the `ord` argument.  If not implemented, a compile time error is raised.*
+Ordering of enum variants is optionally added using `#[pyo3(ord)]`.
+*Note: Implementation of the `PartialOrd` trait is required when passing the `ord` argument.*
+*If not implemented, a compile time error is raised.*
 
 ```rust
 # use pyo3::prelude::*;
@@ -1411,7 +1422,7 @@ Python::attach(|py| {
 ```
 
 WARNING: `Py::new` and `.into_pyobject` are currently inconsistent.
-Note how the constructed value is _not_ an instance of the specific variant.
+Note how the constructed value is *not* an instance of the specific variant.
 For this reason, constructing values is only recommended using `.into_pyobject`.
 
 ```rust
@@ -1481,7 +1492,8 @@ This implementation pattern enables the Rust compiler to use `#[pymethods]` impl
 
 This simple technique works for the case when there is zero or one implementations.
 To support multiple `#[pymethods]` for a `#[pyclass]` (in the [`multiple-pymethods`] feature), a registry mechanism provided by the [`inventory`](https://github.com/dtolnay/inventory) crate is used instead.
-This collects `impl`s at library load time, but isn't supported on all platforms. See [inventory: how it works](https://github.com/dtolnay/inventory#how-it-works) for more details.
+This collects `impl`s at library load time, but isn't supported on all platforms.
+See [inventory: how it works](https://github.com/dtolnay/inventory#how-it-works) for more details.
 
 The `#[pyclass]` macro expands to roughly the code seen below.
 The `PyClassImplCollector` is the type used internally by PyO3 for dtolnay specialization:
@@ -1528,7 +1540,7 @@ impl pyo3::impl_::pyclass::PyClassImpl for MyClass {
     const IS_SEQUENCE: bool = false;
     type Layout = <Self::BaseNativeType as pyo3::impl_::pyclass::PyClassBaseType>::Layout<Self>;
     type BaseType = PyAny;
-    type ThreadChecker = pyo3::impl_::pyclass::SendablePyClass<MyClass>;
+    type ThreadChecker = pyo3::impl_::pyclass::NoopThreadChecker;
     type PyClassMutability = <<pyo3::PyAny as pyo3::impl_::pyclass::PyClassBaseType>::PyClassMutability as pyo3::impl_::pycell::PyClassMutability>::MutableChild;
     type Dict = pyo3::impl_::pyclass::PyClassDummySlot;
     type WeakRef = pyo3::impl_::pyclass::PyClassDummySlot;

@@ -140,12 +140,15 @@ pub fn impl_arg_params(
 
     let extract_expression = if fastcall {
         quote! {
-            DESCRIPTION.extract_arguments_fastcall::<#args_handler, #kwargs_handler>(
+            #pyo3_path::impl_::pymethods::maybe_extract_arguments_fastcall!(
+                DESCRIPTION,
                 py,
                 _args,
                 _nargs,
-                _kwnames,
-                &mut #args_array
+                _kwargs,
+                #args_array,
+                #args_handler,
+                #kwargs_handler
             )?
         }
     } else {
@@ -196,9 +199,10 @@ fn impl_arg_param(
             impl_regular_arg_param(arg, from_py_with, arg_value, holders, ctx)
         }
         FnArg::VarArgs(arg) => {
-            let holder = holders.push_holder(arg.name.span());
+            let span = Span::call_site().located_at(arg.ty.span());
+            let holder = holders.push_holder(span);
             let name_str = arg.name.to_string();
-            quote_spanned! { arg.name.span() =>
+            quote_spanned! { span =>
                 #pyo3_path::impl_::extract_argument::extract_argument(
                     _args.as_any().as_borrowed(),
                     &mut #holder,
@@ -207,9 +211,10 @@ fn impl_arg_param(
             }
         }
         FnArg::KwArgs(arg) => {
-            let holder = holders.push_holder(arg.name.span());
+            let span = Span::call_site().located_at(arg.ty.span());
+            let holder = holders.push_holder(span);
             let name_str = arg.name.to_string();
-            quote_spanned! { arg.name.span() =>
+            quote_spanned! { span =>
                 #pyo3_path::impl_::extract_argument::extract_argument_with_default(
                     _kwargs.as_ref().map(|d| d.as_any().as_borrowed()),
                     &mut #holder,
@@ -254,7 +259,7 @@ pub(crate) fn impl_regular_arg_param(
         default = default.map(|tokens| some_wrap(tokens, ctx));
     }
 
-    if let Some(FromPyWithAttribute { kw, .. }) = arg.from_py_with {
+    if let Some(FromPyWithAttribute { kw, .. }) = &arg.from_py_with.as_deref() {
         let extractor = quote_spanned! { kw.span =>
             { let from_py_with: fn(_) -> _ = #from_py_with; from_py_with }
         };

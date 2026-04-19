@@ -8,7 +8,7 @@
 use crate::PyCapsule_Import;
 #[cfg(GraalPy)]
 use crate::{PyLong_AsLong, PyLong_Check, PyObject_GetAttrString, Py_DecRef};
-use crate::{PyObject, PyObject_TypeCheck, PyTypeObject, Py_TYPE};
+use crate::{PyObject, PyObject_TypeCheck, PyTypeObject, Py_None, Py_TYPE};
 use std::ffi::c_char;
 use std::ffi::c_int;
 use std::ptr;
@@ -33,8 +33,13 @@ pub struct PyDateTime_Delta {
     pub microseconds: c_int,
 }
 
-// skipped PyDateTime_TZInfo
-// skipped private _PyDateTime_BaseTZInfo
+#[repr(C)]
+#[derive(Debug)]
+pub struct PyDateTime_TZInfo {
+    pub ob_base: PyObject,
+}
+
+// skipped non-limited _PyDateTime_BaseTZInfo
 
 // skipped private _PyDateTime_BaseTime
 
@@ -450,8 +455,8 @@ pub unsafe fn PyDateTime_DELTA_GET_MICROSECONDS(o: *mut PyObject) -> c_int {
 }
 
 #[cfg(PyPy)]
-extern "C" {
-    // skipped private _PyDateTime_HAS_TZINFO
+extern_libpython! {
+    // skipped _PyDateTime_HAS_TZINFO (not in PyPy)
     #[link_name = "PyPyDateTime_GET_YEAR"]
     pub fn PyDateTime_GET_YEAR(o: *mut PyObject) -> c_int;
     #[link_name = "PyPyDateTime_GET_MONTH"]
@@ -679,12 +684,103 @@ pub unsafe fn PyTZInfo_CheckExact(op: *mut PyObject) -> c_int {
     (Py_TYPE(op) == (*PyDateTimeAPI()).TZInfoType) as c_int
 }
 
-// skipped non-limited PyDate_FromDate
-// skipped non-limited PyDateTime_FromDateAndTime
-// skipped non-limited PyDateTime_FromDateAndTimeAndFold
-// skipped non-limited PyTime_FromTime
-// skipped non-limited PyTime_FromTimeAndFold
-// skipped non-limited PyDelta_FromDSU
+pub unsafe fn PyDate_FromDate(year: c_int, month: c_int, day: c_int) -> *mut PyObject {
+    ((*PyDateTimeAPI()).Date_FromDate)(year, month, day, (*PyDateTimeAPI()).DateType)
+}
+
+#[allow(clippy::too_many_arguments)]
+/// See <https://github.com/python/cpython/blob/3.10/Include/datetime.h#L226-L228>
+pub unsafe fn PyDateTime_FromDateAndTime(
+    year: c_int,
+    month: c_int,
+    day: c_int,
+    hour: c_int,
+    minute: c_int,
+    second: c_int,
+    microsecond: c_int,
+) -> *mut PyObject {
+    ((*PyDateTimeAPI()).DateTime_FromDateAndTime)(
+        year,
+        month,
+        day,
+        hour,
+        minute,
+        second,
+        microsecond,
+        Py_None(),
+        (*PyDateTimeAPI()).DateTimeType,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+/// See <https://github.com/python/cpython/blob/3.10/Include/datetime.h#L230-L232>
+pub unsafe fn PyDateTime_FromDateAndTimeAndFold(
+    year: c_int,
+    month: c_int,
+    day: c_int,
+    hour: c_int,
+    minute: c_int,
+    second: c_int,
+    microsecond: c_int,
+    fold: c_int,
+) -> *mut PyObject {
+    ((*PyDateTimeAPI()).DateTime_FromDateAndTimeAndFold)(
+        year,
+        month,
+        day,
+        hour,
+        minute,
+        second,
+        microsecond,
+        Py_None(),
+        fold,
+        (*PyDateTimeAPI()).DateTimeType,
+    )
+}
+
+pub unsafe fn PyTime_FromTime(
+    hour: c_int,
+    minute: c_int,
+    second: c_int,
+    microsecond: c_int,
+) -> *mut PyObject {
+    ((*PyDateTimeAPI()).Time_FromTime)(
+        hour,
+        minute,
+        second,
+        microsecond,
+        Py_None(),
+        (*PyDateTimeAPI()).TimeType,
+    )
+}
+
+pub unsafe fn PyTime_FromTimeAndFold(
+    hour: c_int,
+    minute: c_int,
+    second: c_int,
+    microsecond: c_int,
+    fold: c_int,
+) -> *mut PyObject {
+    ((*PyDateTimeAPI()).Time_FromTimeAndFold)(
+        hour,
+        minute,
+        second,
+        microsecond,
+        Py_None(),
+        fold,
+        (*PyDateTimeAPI()).TimeType,
+    )
+}
+
+pub unsafe fn PyDelta_FromDSU(days: c_int, seconds: c_int, microseconds: c_int) -> *mut PyObject {
+    ((*PyDateTimeAPI()).Delta_FromDelta)(
+        days,
+        seconds,
+        microseconds,
+        1,
+        (*PyDateTimeAPI()).DeltaType,
+    )
+}
 
 pub unsafe fn PyTimeZone_FromOffset(offset: *mut PyObject) -> *mut PyObject {
     ((*PyDateTimeAPI()).TimeZone_FromTimeZone)(offset, std::ptr::null_mut())
@@ -710,7 +806,7 @@ pub unsafe fn PyDate_FromTimestamp(args: *mut PyObject) -> *mut PyObject {
 }
 
 #[cfg(PyPy)]
-extern "C" {
+extern_libpython! {
     #[link_name = "PyPyDate_FromTimestamp"]
     pub fn PyDate_FromTimestamp(args: *mut PyObject) -> *mut PyObject;
     #[link_name = "PyPyDateTime_FromTimestamp"]
@@ -718,7 +814,7 @@ extern "C" {
 }
 
 #[cfg(PyPy)]
-extern "C" {
+extern_libpython! {
     #[link_name = "_PyPyDateTime_Import"]
     pub fn PyDateTime_Import() -> *mut PyDateTime_CAPI;
 }

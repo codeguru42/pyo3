@@ -2,12 +2,9 @@
 use crate::err::PyResult;
 use crate::impl_::pyclass::ExtractPyClassWithClone;
 #[cfg(feature = "experimental-inspect")]
-use crate::inspect::types::TypeInfo;
-#[cfg(feature = "experimental-inspect")]
 use crate::inspect::{type_hint_identifier, type_hint_subscript, PyStaticExpr};
 use crate::pyclass::boolean_struct::False;
 use crate::pyclass::{PyClassGuardError, PyClassGuardMutError};
-#[cfg(feature = "experimental-inspect")]
 use crate::types::PyList;
 use crate::types::PyTuple;
 use crate::{
@@ -66,18 +63,6 @@ pub trait IntoPyObject<'py>: Sized {
     /// Performs the conversion.
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error>;
 
-    /// Extracts the type hint information for this type when it appears as a return value.
-    ///
-    /// For example, `Vec<u32>` would return `List[int]`.
-    /// The default implementation returns `Any`, which is correct for any type.
-    ///
-    /// For most types, the return value for this method will be identical to that of [`FromPyObject::type_input`].
-    /// It may be different for some types, such as `Dict`, to allow duck-typing: functions return `Dict` but take `Mapping` as argument.
-    #[cfg(feature = "experimental-inspect")]
-    fn type_output() -> TypeInfo {
-        TypeInfo::Any
-    }
-
     /// Converts sequence of Self into a Python object. Used to specialize `Vec<u8>`, `[u8; N]`
     /// and `SmallVec<[u8; N]>` as a sequence of bytes into a `bytes` object.
     #[doc(hidden)]
@@ -90,9 +75,7 @@ pub trait IntoPyObject<'py>: Sized {
         I: IntoIterator<Item = Self> + AsRef<[Self]>,
         I::IntoIter: ExactSizeIterator<Item = Self>,
     {
-        let mut iter = iter.into_iter().map(|e| e.into_bound_py_any(py));
-        let list = crate::types::list::try_new_from_iter(py, &mut iter);
-        list.map(Bound::into_any)
+        Ok(PyList::new(py, iter)?.into_any())
     }
 
     /// Converts sequence of Self into a Python object. Used to specialize `&[u8]` and `Cow<[u8]>`
@@ -108,9 +91,7 @@ pub trait IntoPyObject<'py>: Sized {
         I: IntoIterator<Item = Self> + AsRef<[<Self as private::Reference>::BaseType]>,
         I::IntoIter: ExactSizeIterator<Item = Self>,
     {
-        let mut iter = iter.into_iter().map(|e| e.into_bound_py_any(py));
-        let list = crate::types::list::try_new_from_iter(py, &mut iter);
-        list.map(Bound::into_any)
+        Ok(PyList::new(py, iter)?.into_any())
     }
 
     /// The output type of [`IntoPyObject::owned_sequence_into_pyobject`] and [`IntoPyObject::borrowed_sequence_into_pyobject`]
@@ -423,19 +404,6 @@ pub trait FromPyObject<'a, 'py>: Sized {
     /// Users are advised against calling this method directly: instead, use this via
     /// [`Bound<'_, PyAny>::extract`](crate::types::any::PyAnyMethods::extract) or [`Py::extract`].
     fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error>;
-
-    /// Extracts the type hint information for this type when it appears as an argument.
-    ///
-    /// For example, `Vec<u32>` would return `Sequence[int]`.
-    /// The default implementation returns `Any`, which is correct for any type.
-    ///
-    /// For most types, the return value for this method will be identical to that of
-    /// [`IntoPyObject::type_output`]. It may be different for some types, such as `Dict`,
-    /// to allow duck-typing: functions return `Dict` but take `Mapping` as argument.
-    #[cfg(feature = "experimental-inspect")]
-    fn type_input() -> TypeInfo {
-        TypeInfo::Any
-    }
 
     /// Specialization hook for extracting sequences for types like `Vec<u8>` and `[u8; N]`,
     /// where the bytes can be directly copied from some python objects without going through
